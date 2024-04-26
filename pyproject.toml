@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "StanfordCars"
+version = "0.1.0"
+description = ""
+authors = ["Skylar Stolte <skylarstolte1996@gmail.com>", "Kyle Volle <kyle.volle@gmail.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+calibratedclassification = {path = "../CalibratedClassification", develop = true}
+scikit-learn = "*"
+torchmetrics = "*"
+pillow = "*"
+ipykernel = "*"
+
+[tool.poetry.dev-dependencies]
+pytest = "^5.2"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
