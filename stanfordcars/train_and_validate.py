@@ -245,7 +245,7 @@ for epoch in range(num_epochs):
 
     print("Epoch %d, loss: %.3f, Train acc: %.4f, Val acc: %.4f" % (epoch + 1,  running_loss/seen, correct/seen, val_correct/val_seen))
 
-    #compute test using only the best performing model 
+#compute test using only the best performing model 
 #(hopefully the following steps may be replaced by a testing dataset)
 
 test_correct = 0.
