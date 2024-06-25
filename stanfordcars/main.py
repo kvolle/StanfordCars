@@ -31,7 +31,7 @@ from sklearn.model_selection import train_test_split
 
 import configparser
 
-from utils import plot_confusion_matrix, CustomDataset, set_matrix_penalty
+from utils import plot_confusion_matrix, CustomDataset, set_matrix_penalty, Experiment
 
 cfg = configparser.ConfigParser()
 cfg.read('./stanfordcars/default.cfg')
@@ -115,126 +115,47 @@ optimizer = torch.optim.SGD(params, lr=float(cfg['lr']), momentum=float(cfg['mom
 # and a learning rate scheduler
 lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=int(cfg['step_size']), gamma=float(cfg['gamma']))
 
+
+experiment = Experiment(model=model, criterion=criterion, optimizer=optimizer, scheduler=lr_scheduler, device=device)
 # TODO make this a function call in a loop
 val_acc_best = 0
 for epoch in range(EPOCHS):
-    running_loss = 0.
-    correct = 0.
-    seen = 0.
-    val_correct = 0.
-    val_seen = 0.
     logging_step = 1
     
-    for i, data in enumerate(train_loader, 0):##dataloaders['train'], 0):
-        inputs, labels = data
-        inputs = inputs.to(device)
-        labels = labels.to(device)
-
-        bs, c, h, w = inputs.shape
-        if c == 1:
-            inputs = inputs.repeat(1, 3, 1, 1).float()
-
-        optimizer.zero_grad()
-        outputs = model(inputs)
-
-        if DOMINO:
-            loss = criterion(outputs, labels, matrix_penalty, a, b)
-        elif DOMINOW:
-            loss = criterion(outputs, labels, matrix_penalty, 1)
-        else:
-            loss = criterion(outputs, labels)
-        
-        loss.backward()
-        optimizer.step()
-
-        running_loss += loss.item()
-        correct += (outputs.argmax(dim=1) == labels).float().sum()
-        seen += len(labels)
-
-    for i, data in enumerate(valid_loader, 0):##dataloaders['val'], 0):
-        inputs, labels = data
-        inputs = inputs.to(device)
-        labels = labels.to(device)
-
-        bs, c, h, w = inputs.shape
-        if c == 1:
-            inputs = inputs.repeat(1, 3, 1, 1).float()
-
-        outputs = model(inputs)
+    train_acc, loss = experiment.step(train_loader, training=True)
+    val_acc, _ = experiment.step(valid_loader, training=False)
     
-        val_correct += (outputs.argmax(dim=1) == labels).float().sum()
-        val_seen += len(labels)
-    
-    #changed to only save models when validation improves
-    val_acc = val_correct/val_seen
     if val_acc>val_acc_best:
-        torch.save(model.state_dict(), RESULT_MODEL)
+        torch.save(experiment.model.state_dict(), RESULT_MODEL) # Check to see if this needs to be experiment.model
         val_acc_best=val_acc
         print('The new best validation accuracy is %.4f, saving model' % (val_acc_best))
 
-    print("Epoch %d, loss: %.3f, Train acc: %.4f, Val acc: %.4f" % (epoch + 1,  running_loss/seen, correct/seen, val_correct/val_seen))
+    print("Epoch %d, loss: %.3f, Train acc: %.4f, Val acc: %.4f" % (epoch + 1,  loss, train_acc, val_acc))
 
 #compute test using only the best performing model 
 #(hopefully the following steps may be replaced by a testing dataset)
+print(RESULT_MODEL)
+checkpoint = torch.load(RESULT_MODEL)
+experiment.model.load_state_dict(checkpoint)
 
-test_correct = 0.
-test_seen = 0.
-#rcrm_metric_total = 0.
-num_batches = 0.
-
-for i, data in enumerate(test_loader, 0):##dataloaders['val'], 0):
-    
-    torch.cuda.empty_cache()
-    
-    inputs, labels = data
-    inputs = inputs.to(device)
-    labels = labels.to(device)
-
-    bs, c, h, w = inputs.shape
-    if c == 1:
-        inputs = inputs.repeat(1, 3, 1, 1).float()
-
-    outputs = model(inputs)
-    
-    test_correct += (outputs.argmax(dim=1) == labels).float().sum()
-    test_seen += len(labels)
-    
-    # Calculate RCR-M metric
-    #rcrm_metric = RCRMMetric().calculate_rcr_metric(model = model, data = torch.Tensor(inputs).cuda(), target = torch.Tensor(labels).cuda(), num_components=3)
-    #print(f"RCR Metric: {rcrm_metric}")
-    #rcrm_metric_total += rcrm_metric
-    
-    #save targets, predictions, and outputs for analysis
-    if i==0:
-        outputs_total = outputs.cpu().detach().numpy()
-        #preds_total = outputs.argmax(dim=1)
-        labels_total = labels.cpu().detach().numpy()
-        inputs_total = inputs.cpu().detach().numpy()
-    else:
-        outputs_total = np.concatenate((outputs_total, outputs.cpu().detach().numpy()), axis=0)
-        labels_total = np.concatenate((labels_total, labels.cpu().detach().numpy()), axis=0)
-        inputs_total = np.concatenate((inputs_total, inputs.cpu().detach().numpy()), axis=0)
-        
-    num_batches += 1
-        
-    torch.cuda.empty_cache()
-
+outputs_total, labels_total, inputs_total, num_batches, test_acc = experiment.report(test_loader)
 preds_total = torch.Tensor(outputs_total).argmax(dim=1)
 
-#rcrm_metric_total = rcrm_metric_total / num_batches
-rcrm_metric = RCRMMetric().calculate_rcr_metric(model = model, data = torch.Tensor(inputs_total).cuda(), target = torch.Tensor(labels_total).cuda(), num_components=1)
-print(f"RCR Metric: {rcrm_metric}")
-        
 #verify sizes
 print(outputs_total.shape)
 print(preds_total.shape)
 print(labels_total.shape)
-
-#outputs_total = outputs_total.cpu().detach().numpy()
 preds_total = preds_total.cpu().detach().numpy()
-#labels_total = labels_total.cpu().detach().numpy()
 
-print('The accuracy on the testing set is: %.4f' % (test_correct/test_seen))
+print('The accuracy on the testing set is: %.4f' % test_acc)
+import time
+a = time.gmtime()
+
+#rcrm_metric_total = rcrm_metric_total / num_batches
+rcrm_metric = RCRMMetric().calculate_rcr_metric(model = model, data = torch.Tensor(inputs_total).cuda(), target = torch.Tensor(labels_total).cuda(), num_components=1)
+print(f"RCR Metric: {rcrm_metric}")
+b = time.gmtime()
+print((b-a)//60)
 
 plot_confusion_matrix(labels_total, preds_total, class_names)
 plt.tight_layout()

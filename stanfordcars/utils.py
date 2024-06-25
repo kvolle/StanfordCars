@@ -72,16 +72,23 @@ def set_matrix_penalty(file=None, classes=10):
     return matrix_penalty
 
 class Experiment():
-    def __init__(self, model, optimizer, scheduler = None, device='cpu'):
+    def __init__(self, model, criterion, optimizer, scheduler = None, device='cpu', valid_loss=False):
         self.model = model
+        self.criterion = criterion
         self.optimizer = optimizer
         self.scheduler = scheduler
         self.device = device
+        self.valid_loss = valid_loss # If true, calculate loss on validation set
 
-    def step(self, dataloader, epoch, training=False):
+    def step(self, dataloader, training=False):
         running_loss = 0.
         correct = 0
         seen = 0
+
+        if training:
+            self.model.train()
+        else:
+            self.model.eval()
 
         for i, data in enumerate(dataloader):
             inputs, labels = data
@@ -93,22 +100,53 @@ class Experiment():
                 inputs = inputs.repeat(1,3, 1, 1).float()
 
             if training:
-                self.model.train()
-                self.optimizer.zero_grad()
-            else:
-                self.model.eval()
+                self.optimizer.zero_grad() # TODO learning scheduler
 
             outputs = self.model(inputs)
             correct += (outputs.argmax(dim=1) == labels).float().sum()
             seen += len(labels)
 
-            if training:
-                loss = self.criterion(outputs, labels)
-                loss.backward()
-                self.optimizer.step()
+            if training or self.valid_loss:
+                loss = self.criterion(outputs, labels) # TODO Domino
                 running_loss += loss.item()
 
-        return correct/seen, running_loss
+            if training:
+                loss.backward()
+                self.optimizer.step()
+                
+        return correct/seen, running_loss/seen
 
+    def report(self, dataloader):
+        correct = 0
+        seen = 0
+
+        self.model.eval()
+        num_batches = 0.
+
+        for i, data in enumerate(dataloader):
+            inputs, labels = data
+            inputs = inputs.to(self.device) # TODO check if this is redundant
+            labels = labels.to(self.device) # TODO check if this is redundant
+
+            bs, c, h, w = inputs.shape
+            if c == 1: # Handle grayscale by tiling
+                inputs = inputs.repeat(1,3, 1, 1).float()
+
+            outputs = self.model(inputs)
+            correct += (outputs.argmax(dim=1) == labels).float().sum()
+            seen += len(labels)
+
+            if i==0:
+                outputs_total = outputs.cpu().detach().numpy()
+                labels_total = labels.cpu().detach().numpy()
+                inputs_total = inputs.cpu().detach().numpy()
+            else:
+                outputs_total = np.concatenate((outputs_total, outputs.cpu().detach().numpy()), axis=0)
+                labels_total = np.concatenate((labels_total, labels.cpu().detach().numpy()), axis=0)
+                inputs_total = np.concatenate((inputs_total, inputs.cpu().detach().numpy()), axis=0)
+                
+            num_batches += 1
+
+        return outputs_total, labels_total, inputs_total, num_batches, correct/seen
 
 
