@@ -107,7 +107,7 @@ class Experiment():
             seen += len(labels)
 
             if training or self.valid_loss:
-                loss = self.criterion(outputs, labels) # TODO Domino
+                loss = self.criterion(outputs, labels)
                 running_loss += loss.item()
 
             if training:

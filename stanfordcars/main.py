@@ -19,7 +19,6 @@ from sklearn.metrics import brier_score_loss
 
 #new loss
 from calibratedclassification.DominoLoss import DOMINO_Loss
-from calibratedclassification.DominoLossW import DOMINO_Loss_W
 
 from calibratedclassification.reliability_diagrams import *
 
@@ -92,18 +91,20 @@ model.to(device)
 
 # Specify Loss # TODO - should always have file, figure out where to put it
 if DOMINO:
-    criterion = DOMINO_Loss()
-    #file  = cfg['matrix_file'] 
-    file = None
-    matrix_penalty = set_matrix_penalty(file, len(class_names))
+    # Read these from config
     a = 0.5
     b = 0.5
 
-elif DOMINOW:
-    criterion = DOMINO_Loss_W()
     #file  = cfg['matrix_file'] 
     file = None
     matrix_penalty = set_matrix_penalty(file, len(class_names))
+    criterion = DOMINO_Loss(matrix_penalty, additive=True, beta1=a, beta2=b)
+
+elif DOMINOW:
+    #file  = cfg['matrix_file'] 
+    file = None
+    matrix_penalty = set_matrix_penalty(file, len(class_names))
+    criterion = DOMINO_Loss(matrix_penalty, additive=False, beta1=0., beta2=1.)
     
 else:
     criterion = nn.CrossEntropyLoss()
