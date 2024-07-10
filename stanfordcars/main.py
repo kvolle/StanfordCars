@@ -4,6 +4,8 @@ import torch.utils.data as data
 import torchvision
 from torchvision import datasets, models, transforms
 
+from torchinfo import summary
+
 import os
 import numpy as np
 import matplotlib.pyplot as plt
@@ -65,27 +67,64 @@ data_transform = transforms.Compose([
 # TODO Make train and valid transforms and make configurable
 
 #Create custom datasets for train and validation
-train_dataset = CustomDataset(cfg['train_dir'], transform=data_transform)
-valid_dataset = CustomDataset(cfg['valid_dir'], transform=data_transform)
+#train_dataset = CustomDataset(cfg['train_dir'], transform=data_transform)
+#valid_dataset = CustomDataset(cfg['valid_dir'], transform=data_transform)
 
 #Create data loaders
-train_loader = data.DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-valid_loader = data.DataLoader(valid_dataset, batch_size=BATCH_SIZE, shuffle=True)
-test_loader = valid_loader
-class_names = train_dataset.class_names
+#train_loader = data.DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+#valid_loader = data.DataLoader(valid_dataset, batch_size=BATCH_SIZE, shuffle=True)
+#test_loader = valid_loader
+#class_names = train_dataset.class_names
+
+#normalize = transforms.Normalize(mean=[0.491, 0.482, 0.447], std=[0.247, 0.243, 0.262])
+normalize = transforms.Normalize(mean=[0.507, 0.487, 0.441], std=[0.267, 0.256, 0.276])
+
+train_dataset = torchvision.datasets.CIFAR100(
+    root='./data', 
+    train=True, 
+    download=True,
+    transform=transforms.Compose([
+        #transforms.RandomCrop(32, padding=4),
+        transforms.Resize((224, 224)),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        normalize,
+    ]))
+train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=4)
+
+test_dataset = torchvision.datasets.CIFAR100(
+    root='./data',
+    train=False,
+    download=True,
+    transform=transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        normalize,
+    ]))
+test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=100, shuffle=False, num_workers=4)
+
+valid_dataset = test_dataset #TODO fix this
+valid_loader = test_loader
+
+#class_names = ['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
+#class_names = ['beaver', 'dolphin', 'otter', 'seal', 'whale', 'aquarium fish', 'flatfish', 'ray', 'shark', 'trout', 'orchids', 'poppies', 'roses', 'sunflowers', 'tulips', 'bottles', 'bowls', 'cans', 'cups', 'plates', 'apples', 'mushrooms', 'oranges', 'pears', 'sweet peppers', 'clock', 'computer keyboard', 'lamp', 'telephone', 'television', 'bed', 'chair', 'couch', 'table', 'wardrobe', 'bee', 'beetle', 'butterfly', 'caterpillar', 'cockroach', 'bear', 'leopard', 'lion', 'tiger', 'wolf', 'bridge', 'castle', 'house', 'road', 'skyscraper', 'cloud', 'forest', 'mountain', 'plain', 'sea', 'camel', 'cattle', 'chimpanzee', 'elephant', 'kangaroo', 'fox', 'porcupine', 'possum', 'raccoon', 'skunk', 'crab', 'lobster', 'snail', 'spider', 'worm', 'baby', 'boy', 'girl', 'man', 'woman', 'crocodile', 'dinosaur', 'lizard', 'snake', 'turtle', 'hamster', 'mouse', 'rabbit', 'shrew', 'squirrel', 'maple', 'oak', 'palm', 'pine', 'willow', 'bicycle', 'bus', 'motorcycle', 'pickup truck', 'train', 'lawn-mower', 'rocket', 'streetcar', 'tank', 'tractor']
+label_info = pd.read_csv('/home/kyle/Desktop/Skylar/cifar100/cifar100_labels.csv')
+class_indices = label_info['class_idx'].to_numpy()
+to_sort = np.argsort(class_indices)
+class_labels = label_info['class_label'].to_numpy()
+class_names = class_labels[to_sort].tolist()
 
 #Print dataset sizes and number of classes
 print(f"Number of images in training set: {len(train_dataset)}")
 print(f"Number of images in validation set: {len(valid_dataset)}")
-print(f"Number of classes: {len(train_dataset.class_names)}")
+#print(f"Number of classes: {len(train_dataset.class_names)}")
 print("Class names:", class_names)
 
 # load a pre-trained model
 # TODO make this automatic
 model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
-#model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
 model.fc = nn.Linear(2048, len(class_names))
-
+summary(model, input_size=(128, 3, 128, 128))
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 model.to(device)
 
@@ -122,7 +161,8 @@ experiment = Experiment(model=model, criterion=criterion, optimizer=optimizer, s
 val_acc_best = 0
 for epoch in range(EPOCHS):
     logging_step = 1
-    
+    for param_group in experiment.optimizer.param_groups:
+        param_group['lr'] = float(cfg['lr'])*pow(0.5, epoch//25)
     train_acc, loss = experiment.step(train_loader, training=True)
     val_acc, _ = experiment.step(valid_loader, training=False)
     
@@ -131,7 +171,7 @@ for epoch in range(EPOCHS):
         val_acc_best=val_acc
         print('The new best validation accuracy is %.4f, saving model' % (val_acc_best))
 
-    print("Epoch %d, loss: %.3f, Train acc: %.4f, Val acc: %.4f" % (epoch + 1,  loss, train_acc, val_acc))
+    print("Epoch %d, lr: %.5f, loss: %.3f, Train acc: %.4f, Val acc: %.4f" % (epoch + 1,  float(cfg['lr'])*pow(0.5, epoch//25), loss, train_acc, val_acc))
 
 #compute test using only the best performing model 
 #(hopefully the following steps may be replaced by a testing dataset)
@@ -149,19 +189,29 @@ print(labels_total.shape)
 preds_total = preds_total.cpu().detach().numpy()
 
 print('The accuracy on the testing set is: %.4f' % test_acc)
+"""
 import time
-a = time.gmtime()
+a = time.time()
 
 #rcrm_metric_total = rcrm_metric_total / num_batches
 rcrm_metric = RCRMMetric().calculate_rcr_metric(model = model, data = torch.Tensor(inputs_total).cuda(), target = torch.Tensor(labels_total).cuda(), num_components=1)
 print(f"RCR Metric: {rcrm_metric}")
-b = time.gmtime()
+b = time.time()
 print((b-a)//60)
-
-plot_confusion_matrix(labels_total, preds_total, class_names)
+"""
+cm = plot_confusion_matrix(labels_total, preds_total, class_names)
 plt.tight_layout()
 plt.savefig(RESULT_SAVE_PATH + MODEL_NAME + '_confusionmatrix_test.png')
 
+cm_sorted = cm[class_indices, :][:, class_indices].astype(np.float32)
+cm_sorted /= np.max(cm_sorted)
+for i in range(len(class_indices)):
+    cm_sorted[i, i] = np.nan
+
+plt.figure()
+plt.imshow(cm_sorted)
+plt.show()
+assert False
 #will need this to compute loss term
 df_cm = pd.DataFrame(confusion_matrix(labels_total,preds_total))
 df_cm.to_csv(RESULT_SAVE_PATH + MODEL_NAME + '_confusionmatrix_test.csv')

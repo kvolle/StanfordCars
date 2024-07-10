@@ -34,10 +34,11 @@ def plot_confusion_matrix(labels, pred_labels, classes):
     fig = plt.figure(figsize=(10, 10))
     ax = fig.add_subplot(1, 1, 1)
     cm = confusion_matrix(labels, pred_labels)
-    cm = ConfusionMatrixDisplay(cm, display_labels=classes)
-    cm.plot(values_format='d', cmap='Blues', ax=ax)
+    cmd = ConfusionMatrixDisplay(cm, display_labels=classes)
+    cmd.plot(values_format='d', cmap='Blues', ax=ax)
     plt.grid(False)
     plt.xticks(rotation=90)
+    return cm
 
 # Create a dataset from the CustomDataset class
 class CustomDataset(data.Dataset):
@@ -103,6 +104,8 @@ class Experiment():
                 self.optimizer.zero_grad() # TODO learning scheduler
 
             outputs = self.model(inputs)
+            #print(outputs.shape, torch.max(outputs).item())
+            #assert False
             correct += (outputs.argmax(dim=1) == labels).float().sum()
             seen += len(labels)
 
